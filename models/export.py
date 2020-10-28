@@ -32,7 +32,7 @@ if __name__ == '__main__':
     # Load PyTorch model
     model = attempt_load(opt.weights, map_location=torch.device('cpu'))  # load FP32 model
     labels = model.names
-    model.model[-1].export = True
+    model.model[-1].export = False
 
     # Checks
     gs = int(max(model.stride))  # grid size (max stride)
@@ -48,7 +48,6 @@ if __name__ == '__main__':
             m.act = Hardswish()  # assign activation
         # if isinstance(m, models.yolo.Detect):
         #     m.forward = m.forward_export  # assign forward (optional)
-    model.model[-1].export = True  # set Detect() layer export=True
     y = model(img)  # dry run
 
     # TorchScript export
@@ -73,8 +72,8 @@ if __name__ == '__main__':
         # Checks
         onnx_model = onnx.load(f)  # load onnx model
         # reset batch size, if it is set to aribtrary
-        onnx_model.graph.input[0].type.tensor_type.shape.dim[0].dim_param = 'None'
-        onnx.save_model(onnx_model, f)
+        # onnx_model.graph.input[0].type.tensor_type.shape.dim[0].dim_param = 'None'
+        # onnx.save_model(onnx_model, f)
         onnx.checker.check_model(onnx_model)  # check onnx model
         # print(onnx.helper.printable_graph(onnx_model.graph))  # print a human readable model
         print('ONNX export success, saved as %s' % f)
