@@ -1,4 +1,5 @@
 import argparse
+import glob
 import os
 import shutil
 import time
@@ -25,9 +26,10 @@ def detect(save_img=False):
     # Initialize
     set_logging()
     device = select_device(opt.device)
-    if os.path.exists(out):  # output dir
-        shutil.rmtree(out)  # delete dir
-    os.makedirs(out)  # make new dir
+    if os.path.exists(out) and opt.save_txt:  # output dir
+        for file in glob.glob(out+'/*.txt'):
+            os.remove(file)
+    # os.makedirs(out)  # make new dir
     half = device.type != 'cpu'  # half precision only supported on CUDA
 
     # Load model
