@@ -102,6 +102,10 @@ def detect(save_img=False):
                     n = (det[:, -1] == c).sum()  # detections per class
                     s += '%g %ss, ' % (n, names[int(c)])  # add to string
 
+                if opt.max:
+                    max_idx = det[:, 4].argmax()
+                    det = det[max_idx:max_idx+1]
+
                 # Write results
                 for *xyxy, conf, cls in reversed(det):
                     if save_txt:  # Write to file
@@ -162,6 +166,7 @@ if __name__ == '__main__':
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--update', action='store_true', help='update all models')
+    parser.add_argument('--max', action='store_true', help='use a single prediction with max confidence')
     opt = parser.parse_args()
     print(opt)
 
