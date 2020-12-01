@@ -1,14 +1,16 @@
 import argparse
 import glob
+import json
 import os
 import shutil
 import time
 from pathlib import Path
-
+import numpy as np
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
 from numpy import random
+from matplotlib import pyplot as plt
 
 from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages
@@ -17,6 +19,24 @@ from utils.general import (
     xyxy2xywh, plot_one_box, strip_optimizer, set_logging)
 from utils.torch_utils import select_device, load_classifier, time_synchronized
 
+def inflate_polygon(polygon, factor, img_shape):
+    # assume convex polygon
+    center = np.mean(polygon, axis=0)
+    for p in polygon:
+        if p[0][1] < center[0][1]:
+            p[0][1] -= factor * p[0][1]
+    #    polygon = (polygon + (polygon - center) * factor).astype(np.int)
+    polygon = np.clip(polygon, [0, 0], img_shape)
+    return polygon
+
+def parse_crop_filter(string, frame_width, frame_height):
+    if string.count(':') == 0:
+        return frame_width, frame_height, 0, 0
+    values = list(map(int, string.split(',')[0].replace('crop=', '').split(':')))
+    if len(values) == 2:
+        values.append(int((frame_width - values[0]) / 2))
+        values.append(int((frame_height - values[1]) / 2))
+    return values
 
 def detect(save_img=False):
     out, source, weights, view_img, save_txt, imgsz = \
@@ -64,8 +84,20 @@ def detect(save_img=False):
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
     _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
     for path, img, im0s, vid_cap in dataset:
+        if opt.use_config and config:
+            img = np.moveaxis(img, [0, 1, 2], [2, 0, 1])
+            w, h, x, y = parse_crop_filter(config['ffmpeg']['filter_chain'], img.shape[1], img.shape[0])
+            polygon = src_polygon.copy()
+            polygon[:, :, 0] = (polygon[:, :, 0] + x) * (img.shape[1] / im0s.shape[1])
+            polygon[:, :, 1] = (polygon[:, :, 1] + y) * (img.shape[0] / im0s.shape[0])
+            polygon = inflate_polygon(polygon, 0.3, (img.shape[1], img.shape[0]))
+            mean_color = np.mean(img, axis=(0, 1)).astype(np.uint8)
+            mask_img = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
+            mask_img = np.bitwise_not(cv2.fillPoly(mask_img, [polygon], 255))
+            img[mask_img > 0] = mean_color
+            img = np.moveaxis(img, [0, 1, 2], [1, 2, 0])
         img = torch.from_numpy(img).to(device)
-        img = img.half() if half else img.float()  # uint8 to fp16/32
+        img = img.half() if half else img.float()
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
@@ -167,9 +199,17 @@ if __name__ == '__main__':
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--update', action='store_true', help='update all models')
     parser.add_argument('--max', action='store_true', help='use a single prediction with max confidence')
+    parser.add_argument('--use_config', action='store_true', help='Use a motioncrop config file')
     opt = parser.parse_args()
     print(opt)
-
+    config = None
+    if opt.use_config:
+        config_name = opt.source+'.config.json'
+        if os.path.exists(config_name):
+            config = json.load(open(config_name, mode='r'))
+            src_polygon = config['motioncrop']['motion_area']
+            src_polygon = list((p['x'], p['y']) for p in src_polygon)
+            src_polygon = np.array(src_polygon).reshape((-1, 1, 2))
     with torch.no_grad():
         if opt.update:  # update all models (to fix SourceChangeWarning)
             for opt.weights in ['yolov5s.pt', 'yolov5m.pt', 'yolov5l.pt', 'yolov5x.pt']:
